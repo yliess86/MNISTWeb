@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>MNIST Web</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.2.0/dist/tf.min.js"></script>
+    </head>
+    
+    <body>
+        <div>
+            <h1>mnist <span id="subtitle">web</span></h1>
+        </div>
+        <div id="card">
+            <canvas id="canvas" width="512" height="512"></canvas>
+            <div id="probs">
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">0</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">1</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">2</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">3</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">4</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">5</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">6</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">7</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">8</div> </div>
+                <div class="probs-container"> <div class="prob"><div class="pbar"></div></div> <div class="digit">9</div> </div>
+            </div>
+        </div>
+    </body>
+
+    <style>
+        :root, html, body { padding: 0px; margin: 0px;  line-height: 1.2; width: 100%; height: 100%; background-color: rgb(210, 211, 219); }
+        body { font-family: 'Poppins', sans-serif; font-size: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; }
+        h1 { font-size: 2rem; font-weight: 900; text-transform: uppercase; margin: 0px; padding: 0px; color: rgb(56, 101, 185) }
+        #subtitle { font-weight: 500; font-size: 1rem; }
+        #card { position: relative; background-color: white; border-radius: 32px; box-shadow: 0px 25px 50px rgba(56, 101, 185, 0.678); overflow: hidden; }
+        #canvas { background-color: black; }
+        #probs { position: relative; display: grid; grid-template-columns: repeat(10, 1fr); justify-content: center; gap: 0px; }
+        #probs { margin: 1rem; height: 256px; border-radius: 0 0 24px 24px; overflow: hidden; background-color: rgb(227, 228, 241); }
+        .probs-container { position: relative; display: block; height: 100%; width: 100%; text-align: center; }
+        .digit { position: absolute; top: 1.5rem; font-weight: 900; font-size: 1.5rem; width: 100%; }
+        .prob { position: relative; width: 100%; height: 100%; }
+        .pbar { position: relative; width: 100%; height: 0%; background-color: rgb(173, 193, 230); content: ""; }
+        .argmax { background-color: rgb(99, 142, 221); color: white }
+
+        @media screen and (max-width: 768px), screen and (max-height: 768px) {
+            #card { border-radius: 12px; }
+            #probs { height: 128px; border-radius: 0 0 8px; }
+            .digit { top: 0.5rem; font-size: 0.4rem; font-weight: 700; }
+        }
+        
+        @media screen and (max-width: 1536px), screen and (max-height: 1536px) {
+            #card { border-radius: 18px; }
+            #probs { border-radius: 0 0 12px; }
+            .digit { top: 1rem; font-size: 1rem; }
+        }
+    </style>
+
+    <script>
+        class Model {
+            constructor() {
+                this.model = undefined
+                this.loaded = false
+            }
+
+            load = async () => { this.model = await tf.loadGraphModel("mnist.js/model.json"); this.loaded = true }
+            prep = data => tf.browser.fromPixels(data).resizeBilinear([28, 28]).mean(2).div(255).reshape([1, 28 * 28])
+            probs = async data => await this.model.predict({"input:0": this.prep(data)}, "Idendity:0").squeeze(0).softmax().dataSync()
+            argmax = async probs => await tf.argMax(probs).dataSync()[0]
+        }
+
+        class Canvas {
+            constructor(model) {
+                this.cvs = document.getElementById("canvas")
+                if(window.innerWidth < 768 || window.innerHeight < 768) { this.cvs.width = 256; this.cvs.height = 256 }
+                else if(window.innerWidth < (1536) || window.innerHeight < (1536)) { this.cvs.width = 512; this.cvs.height = 512 }
+                else { this.cvs.width = 1024; this.cvs.height = 1024 }
+
+                this.ctx = this.cvs.getContext("2d")
+                this.rect = this.cvs.getBoundingClientRect()
+                this.pos = { x: 0, y: 0 }
+                this.painting = false
+                this.size = (20 / 512) * this.cvs.width
+                
+                this.model = model
+                this.digits = document.getElementsByClassName("digit")
+                this.pbars = document.getElementsByClassName("pbar")
+
+                this.cvs.addEventListener("mousemove", this.move)
+                this.cvs.addEventListener("mousedown", this.enter)
+                this.cvs.addEventListener("mouseout", this.cancel)
+                this.cvs.addEventListener("mouseup", this.leave)
+
+                this.cvs.addEventListener("touchmove", this.move)
+                this.cvs.addEventListener("touchstart", this.enter)
+                this.cvs.addEventListener("touchcancel", this.cancel)
+                this.cvs.addEventListener("touchend", this.leave)
+            }
+
+            data  = () => this.ctx.getImageData(0, 0, this.cvs.width, this.cvs.height)
+            clear = () => { this.ctx.fillStyle = "#000000ff"; this.ctx.fillRect(0, 0, this.cvs.width, this.cvs.height) }
+            reset = () => this.pos = { x: 0, y: 0 }
+
+            mouse  = e => e.type.includes("touch") ? { x: e.touches[0].clientX - this.rect.left, y: e.touches[0].clientY - this.rect.top }: { x: e.clientX - this.rect.left, y: e.clientY - this.rect.top }
+            enter  = e => { if (e.target == canvas) e.preventDefault(); this.painting = true; this.clear(); this.pos = this.mouse(e) }
+            cancel = e => { if (e.target == canvas) e.preventDefault(); this.painting = false }
+            leave  = e => { if (e.target == canvas) e.preventDefault(); this.painting = false; this.infer() }
+            move   = e => {
+                if (e.target == canvas) e.preventDefault()
+                let new_pos = this.mouse(e)
+
+                if(this.painting) {
+                    this.ctx.beginPath()
+                    this.ctx.strokeStyle = "#ffffffff"
+                    this.ctx.lineJoin = this.ctx.lineCap = "round"
+                    this.ctx.lineWidth = this.size
+                    this.ctx.moveTo(new_pos.x, new_pos.y)
+                    this.ctx.lineTo(this.pos.x, this.pos.y)
+                    this.ctx.stroke()
+                    this.ctx.closePath()
+                }
+                this.pos = new_pos
+            }
+            
+            infer = async () => { if(this.model.loaded) {
+                let probs = await this.model.probs(this.data())
+                let argmax = await this.model.argmax(probs)
+
+                for (let i = 0; i < 10; ++i) {
+                    this.pbars[i].style.height = `${probs[i] * 100}%`
+                    if(i == argmax) this.pbars[i].classList.add("argmax")
+                    else this.pbars[i].classList.remove("argmax")
+                    if(i == argmax) this.digits[i].classList.add("argmax")
+                    else this.digits[i].classList.remove("argmax")
+                }
+            }}
+        }
+
+        let model = new Model()
+        let canvas = new Canvas(model)
+        model.load()
+
+        window.addEventListener("move", () => canvas = new Canvas(model))
+        window.addEventListener("resize", () => canvas = new Canvas(model))
+    </script>
+</html>
